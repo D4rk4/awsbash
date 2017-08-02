@@ -6,7 +6,7 @@
 # Don't forgot define $aws ;)
 #
 
-## Our bicicles
+## Our bicycles
 JSONToList () {
 	grep -vE '(\[|\])' | sed 's/"//g;s/,//g;/^\s*$/d'| awk '{print $1}'
 }
