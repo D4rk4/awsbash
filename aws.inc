@@ -5,9 +5,6 @@
 #
 # Don't forgot define $aws ;)
 #
-# 20180729:
-#   AutoChangeInstanceCByID - Autoupgrade any "c" family instances to "c5" family.
-
 
 ## Our bicycles
 JSONToList () {
@@ -20,60 +17,51 @@ AutoChangeInstanceCByID () {
 	elbtarget="${4}"
 	preload="${5}"
 	chaction=0;
-    g=5 # Family generation
-    ptype="c${g}.9xlarge"
+	g=5 # Family generation
+	ptype="c${g}.4xlarge"
 	cload=`CWGetAwgCPUByID ${ID}`
 	# Time to upgrade?
-	if [ ${cload} -gt ${tmaxload} ] || [ ! -z "${preload}" ]; then
+	if [ ${cload} -gt ${tmaxload} -o -n "${preload}" ]; then
 		echo "[${ID}] High load detected: ${cload}%"
 		ctype=`EC2GetTypeByID ${ID}`
 		chaction=1;
-		case ${ctype} in 
-			c*.large) 
-				if [ ! -z "${preload}" ]; then
-					ttype="${ptype}"
-				else
-					ttype="c${g}.xlarge"
-				fi
-			;;
-			c*.xlarge) 
-				if [ ! -z "${preload}" ]; then
-					ttype="${ptype}"
-				else
-					ttype="c${g}.2xlarge"
-				fi
-			;;
-			c*.2xlarge) 
-				if [ ! -z "${preload}" ]; then
-					ttype="${ptype}"
-				else
-					ttype="c${g}.4xlarge"
-				fi
-			;;
-			c*.4xlarge) 
-				if [ ! -z "${preload}" ]; then
-					ttype="${ptype}"
-				else
-                    ttype="c${g}.9xlarge"
-                fi
-			;;
-			c*.8xlarge)
-                # Look like time to upgrade to c5.9xlarge
-				ttype="c${g}.9xlarge"
-			;;
-			c*.9xlarge)
-				ttype="c${g}.18xlarge"
-			;;
-			c*.18xlarge)
-				chaction=0;
-			;;
-			*)
-				ttype="c${g}.large"
-			;;
-		esac
+		if [ -n "${preload}" ]; then
+			ttype="${ptype}"
+		else
+			case ${ctype} in 
+				c*.large) 
+						ttype="c${g}.xlarge"
+				;;
+				c*.xlarge) 
+						ttype="c${g}.2xlarge"
+				;;
+				c*.2xlarge) 
+						ttype="c${g}.4xlarge"
+				;;
+				c*.4xlarge) 
+		                ttype="c${g}.9xlarge"
+				;;
+				c*.9xlarge)
+		                ttype="c${g}.18xlarge"
+				;;
+				c*.18xlarge)
+					chaction=0;
+				;;
+				c*.8xlarge)
+					# Look like time to upgrade to c5.9xlarge
+					ttype="c5.9xlarge"
+				;;
+				*)
+					ttype="c${g}.large"
+				;;
+			esac
+		fi
+		if [ "${ctype}" = "${ttype}" ]; then
+			chaction=0;
+		fi
 	fi
 	# Time to downgrade?
-	if [ ${cload} -lt ${tminload} ] && [ ${cload} -ne 0 ]; then
+	if [ ${cload} -lt ${tminload} -a ${cload} -ne 0 -o -z "${preload}" ]; then
 		echo "[${ID}] Low load detected: ${cload}%"
 		ctype=`EC2GetTypeByID ${ID}`
 		chaction=1;
@@ -82,44 +70,27 @@ AutoChangeInstanceCByID () {
 				chaction=0;
 			;;
 			c*.xlarge) 
-				if [ ! -z "${preload}" ]; then
-					chaction=0
-				else
 					ttype="c${g}.large"
-				fi
 			;;
 			c*.2xlarge) 
-				if [ ! -z "${preload}" ]; then
-					chaction=0
-				else
 					ttype="c${g}.xlarge"
-				fi
 			;;
 			c*.4xlarge)
-				if [ ! -z "${preload}" ]; then
-					chaction=0
-				else 
 					ttype="c${g}.2xlarge"
-				fi
 			;;
 			c*.9xlarge)
-				if [ ! -z "${preload}" ]; then
-					chaction=0
-				else 
 					ttype="c${g}.4xlarge"
-				fi
             ;;
 			c*.18xlarge)
-				if [ ! -z "${preload}" ]; then
-					chaction=0
-				else 
 					ttype="c${g}.9xlarge"
-				fi
             ;;
 			*)
 				ttype="c${g}.large"
 			;;
 		esac
+		if [ "${ctype}" = "${ttype}" ]; then
+			chaction=0;
+		fi
 	fi
 	# Showtime!
 	if [ ${chaction} -eq 1 ]; then
@@ -145,7 +116,7 @@ AutoChangeInstanceCByID () {
 			sstat=`EC2CheckSystemStatusByID ${ID}`
 			EC2StartByID ${ID}
 			echo -en '.'
-			sleep 1;
+			sleep 2;
 		done
 		echo -e "\n[${ID}] Registring..."
 		ELBRegTargetByID ${elbtarget} ${ID}
@@ -169,28 +140,39 @@ EC2GetTypeByID () {
 	${aws} ec2 describe-instances --query 'Reservations[].Instances[].InstanceType' --filters Name=instance-id,Values=${1}| JSONToList
 }
 EC2ForceStopByID () {
-        rcode='999'
-        while [ ${rcode} -ne 80 ]; do
+	rcode='999'
+	while [ ${rcode} -ne 80 ]; do
 		rcode=`${aws} ec2 stop-instances --force --instance-ids ${1} |jq '.StoppingInstances[].CurrentState.Code'`
 		echo -en '.'
-		sleep 1;
+		sleep 2;
 	done
 }
 EC2StopByID () {
 	rcode='999'
-	while [ ${rcode} -ne 80 ]; do
-		rcode=`${aws} ec2 stop-instances --instance-ids ${1} |jq '.StoppingInstances[].CurrentState.Code'`
-		echo -en '.'
-		sleep 1;
-	done
+
+		while [ ${rcode} -ne 80 ]; do
+			rcode=`${aws} ec2 stop-instances --instance-ids ${1} |jq '.StoppingInstances[].CurrentState.Code'`
+			if [ -n "$rcode" -a -z "${rcode//[0-9]}" ]; then
+				echo -en '.'
+				sleep 2;
+			else
+				echo "ERR: ${FUNCNAME[0]} Int status expected. Action failed!"
+				exit 65;		
+			fi
+		done
 }
 EC2StartByID () {
 	rcode='999'
-        while [ ${rcode} -ne 16 ]; do
-		rcode=`${aws} ec2 start-instances --instance-ids ${1}|jq '.StartingInstances[].CurrentState.Code'`
-		echo -en '.'
-		sleep 1;
-	done
+		while [ ${rcode} -ne 16 ]; do
+			rcode=`${aws} ec2 start-instances --instance-ids ${1}|jq '.StartingInstances[].CurrentState.Code'`
+			if [ -n "$rcode" -a -z "${rcode//[0-9]}" ]; then
+				echo -en '.'
+				sleep 2;
+			else
+				echo "ERR: ${FUNCNAME[0]} Int status expected. Action failed!"
+				exit 65;		
+			fi
+		done
 }
 EC2CheckSystemStatusByID () {
 	${aws} ec2 describe-instance-status --instance-ids ${1}|jq '.InstanceStatuses[].InstanceStatus.Status'|JSONToList
@@ -202,11 +184,16 @@ EC2ChangeTypeByID () {
 CWGetAwgCPUByID () {
 	EndTime=`date -u --iso-8601=minutes  --date="-2 minutes"`
 	StartTime=`date -u --iso-8601=minutes --date="-10 minutes"`
-	${aws} cloudwatch get-metric-statistics --namespace AWS/EC2 --metric-name CPUUtilization --dimensions Name=InstanceId,Value=${1} \
+	result=`${aws} cloudwatch get-metric-statistics --namespace AWS/EC2 --metric-name CPUUtilization --dimensions Name=InstanceId,Value=${1} \
 		--period 60 --statistics Average \
 		--end-time=${EndTime} \
 		--start-time=${StartTime} |\
-		jq '.Datapoints[].Average'|head -1|cut -f1 -d.
+		jq '.Datapoints[].Average'|head -1|cut -f1 -d.`
+	if [[ ${result} =~ ^-?[0-9]+$ ]]; then
+		echo "${result}"
+	else
+		echo "0"		
+	fi
 }
 ## Application ELB (aka ELB v.2)
 ELBUnRegTargetByID () {
