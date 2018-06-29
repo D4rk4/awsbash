@@ -21,6 +21,7 @@ AutoChangeInstanceCByID () {
 	preload="${5}"
 	chaction=0;
     g=5 # Family generation
+    ptype="c${g}.9xlarge"
 	cload=`CWGetAwgCPUByID ${ID}`
 	# Time to upgrade?
 	if [ ${cload} -gt ${tmaxload} ] || [ ! -z "${preload}" ]; then
@@ -30,33 +31,40 @@ AutoChangeInstanceCByID () {
 		case ${ctype} in 
 			c*.large) 
 				if [ ! -z "${preload}" ]; then
-					ttype="c${g}.9xlarge"
+					ttype="${ptype}"
 				else
 					ttype="c${g}.xlarge"
 				fi
 			;;
 			c*.xlarge) 
 				if [ ! -z "${preload}" ]; then
-					ttype="c${g}.9xlarge"
+					ttype="${ptype}"
 				else
 					ttype="c${g}.2xlarge"
 				fi
 			;;
 			c*.2xlarge) 
 				if [ ! -z "${preload}" ]; then
-					ttype="c${g}.9xlarge"
+					ttype="${ptype}"
 				else
 					ttype="c${g}.4xlarge"
 				fi
 			;;
 			c*.4xlarge) 
-				ttype="c${g}.9xlarge"
+				if [ ! -z "${preload}" ]; then
+					ttype="${ptype}"
+				else
+                    ttype="c${g}.9xlarge"
+                fi
 			;;
 			c*.8xlarge)
                 # Look like time to upgrade to c5.9xlarge
 				ttype="c${g}.9xlarge"
 			;;
 			c*.9xlarge)
+				ttype="c${g}.18xlarge"
+			;;
+			c*.18xlarge)
 				chaction=0;
 			;;
 			*)
@@ -100,7 +108,14 @@ AutoChangeInstanceCByID () {
 				else 
 					ttype="c${g}.4xlarge"
 				fi
-                        ;;
+            ;;
+			c*.18xlarge)
+				if [ ! -z "${preload}" ]; then
+					chaction=0
+				else 
+					ttype="c${g}.9xlarge"
+				fi
+            ;;
 			*)
 				ttype="c${g}.large"
 			;;
