@@ -18,7 +18,7 @@ AutoChangeInstanceCByID () {
 	preload="${5}"
 	chaction=0;
 	g=5 # Family generation
-	ptype="c${g}.4xlarge"
+	ptype="c${g}.9xlarge" # Preload to this type
 	cload=`CWGetAwgCPUByID ${ID}`
 	# Time to upgrade?
 	if [ ${cload} -gt ${tmaxload} -o -n "${preload}" ]; then
@@ -30,19 +30,19 @@ AutoChangeInstanceCByID () {
 		else
 			case ${ctype} in 
 				c*.large) 
-						ttype="c${g}.xlarge"
+					ttype="c${g}.xlarge"
 				;;
 				c*.xlarge) 
-						ttype="c${g}.2xlarge"
+					ttype="c${g}.2xlarge"
 				;;
 				c*.2xlarge) 
-						ttype="c${g}.4xlarge"
+					ttype="c${g}.4xlarge"
 				;;
 				c*.4xlarge) 
-		                ttype="c${g}.9xlarge"
+			                ttype="c${g}.9xlarge"
 				;;
 				c*.9xlarge)
-		                ttype="c${g}.18xlarge"
+			                ttype="c${g}.18xlarge"
 				;;
 				c*.18xlarge)
 					chaction=0;
@@ -61,7 +61,8 @@ AutoChangeInstanceCByID () {
 		fi
 	fi
 	# Time to downgrade?
-	if [ ${cload} -lt ${tminload} -a ${cload} -ne 0 -o -z "${preload}" ]; then
+#	if [ ${cload} -lt ${tminload} -a ${cload} -ne 0 ]; then #ToDo fix zeroload
+	if [ ${cload} -lt ${tminload} -a ${cload} ]; then
 		echo "[${ID}] Low load detected: ${cload}%"
 		ctype=`EC2GetTypeByID ${ID}`
 		chaction=1;
@@ -70,20 +71,40 @@ AutoChangeInstanceCByID () {
 				chaction=0;
 			;;
 			c*.xlarge) 
+				if [ -n "${preload}" ]; then
+					chaction=0
+				else
 					ttype="c${g}.large"
+				fi
 			;;
 			c*.2xlarge) 
+				if [ -n "${preload}" ]; then
+					chaction=0
+				else
 					ttype="c${g}.xlarge"
+				fi
 			;;
 			c*.4xlarge)
+				if [ -n "${preload}" ]; then
+					chaction=0
+				else 
 					ttype="c${g}.2xlarge"
+				fi
 			;;
 			c*.9xlarge)
+				if [ -n "${preload}" ]; then
+					chaction=0
+				else 
 					ttype="c${g}.4xlarge"
-            ;;
+				fi
+			;;
 			c*.18xlarge)
+				if [ -n "${preload}" ]; then
+					chaction=0
+				else 
 					ttype="c${g}.9xlarge"
-            ;;
+				fi
+			;;
 			*)
 				ttype="c${g}.large"
 			;;
@@ -203,6 +224,17 @@ ELBRegTargetByID () {
 	${aws} elbv2 register-targets --target-group-arn ${1} --targets Id=${2}
 }
 
+## Decode encrypted error messages
 AWSDecodeErr () {
-	${aws} sts decode-authorization-message --encoded-message "$1" | jq '.["DecodedMessage"]' |sed 's/\\"/"/g' |sed 's/^"//' |sed 's/"$//' |jq
+	${aws} sts decode-authorization-message --encoded-message "$1" | jq '.["DecodedMessage"]' |sed 's/\\"/"/g;s/^"//;s/"$//' |jq
+}
+
+## Database Migration Service
+DMSGetTaskStatusByARN ()
+{
+	${aws} dms describe-replication-tasks --filters "Name=replication-task-arn,Values=${1}" | jq '.ReplicationTasks[].Status' | sed 's/\\"/"/g;s/^"//;s/"$//'
+}
+DMSRestartTaskByARN ()
+{
+	${aws} dms start-replication-task --replication-task-arn ${1} --start-replication-task-type "reload-target" | jq '.ReplicationTask.Status' | sed 's/\\"/"/g;s/^"//;s/"$//'
 }
